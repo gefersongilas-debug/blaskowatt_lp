@@ -48,3 +48,10 @@
 
 .form-actions .form-back{white-space:nowrap!important;flex:0 0 31%;}
 .form-actions .form-submit{font-size:.9rem;}
+
+/* LP2 — confirmação de envio e antispam sem alterar a aparência do formulário */
+.form-status{margin:12px 0 0;padding:11px 13px;border-radius:9px;background:#edf8f2;color:#146f3a;font-size:.85rem;font-weight:700;line-height:1.5}
+.form-status.is-error{background:#fff1ef;color:#a32222}
+.form-status[hidden]{display:none!important}
+.form-actions button:disabled{cursor:wait;opacity:.75}
+.form-honeypot{position:absolute!important;left:-9999px!important;width:1px!important;height:1px!important;overflow:hidden!important;pointer-events:none!important}

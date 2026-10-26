@@ -1,4 +1,5 @@
 const phone='5555997173311';
+const leadEndpoint='/api/blaskowatt-lp2';
 const toggle=document.querySelector('.mobile-toggle');
 const menu=document.querySelector('#menu');
 if(toggle && menu){
@@ -24,6 +25,10 @@ if(form){
   const stepName=form.querySelector('#form-step-name');
   const stepNames=['Seus dados','Seu projeto','Últimos detalhes'];
   const telephone=form.querySelector('#telefone');
+  const status=form.querySelector('#form-status');
+  const submitLabel=submitBtn.querySelector('span');
+  const submitLabelOriginal=submitLabel.textContent;
+  let isSubmitting=false;
   let currentStep=0;
 
   function normalizePhone(value){
@@ -75,10 +80,23 @@ if(form){
     }
   }
   nextBtn.addEventListener('click',()=>{
+    if(isSubmitting) return;
     if(validateStep(currentStep)) showStep(currentStep+1,true);
   });
-  backBtn.addEventListener('click',()=>{if(currentStep>0)showStep(currentStep-1,true);});
-  form.addEventListener('submit',e=>{
+  backBtn.addEventListener('click',()=>{if(!isSubmitting && currentStep>0)showStep(currentStep-1,true);});
+
+  function trackingData(){
+    const params=new URLSearchParams(window.location.search);
+    const tracking={};
+    for(const [key,value] of params){
+      if(/^(utm_[a-z0-9_]+|gclid|gbraid|wbraid|fbclid|msclkid|ttclid)$/i.test(key) && value.trim()){
+        tracking[key.toLowerCase()]=value.trim().slice(0,500);
+      }
+    }
+    return tracking;
+  }
+
+  form.addEventListener('submit',async e=>{
     e.preventDefault();
     // Submitting via Enter on an earlier step advances instead of skipping questions.
     if(!validateStep(currentStep)) return;
@@ -86,18 +104,81 @@ if(form){
     for(let i=0;i<steps.length;i++){
       if(!validateStep(i)){showStep(i,true);return;}
     }
+    if(isSubmitting) return;
     const value=id=>form.querySelector('#'+id).value.trim();
+    const payload={
+      nome:value('nome'),
+      telefone:value('telefone'),
+      endereco:value('endereco'),
+      servico:value('servico'),
+      tipo_imovel:value('tipo_imovel'),
+      prazo:value('prazo'),
+      form_id:'lead-form',
+      form_name:'Avaliação técnica — Blaskowatt Sistemas Híbridos',
+      source:'blaskowatt_lp2',
+      page_url:window.location.href,
+      page_title:document.title,
+      referrer:document.referrer,
+      submitted_at:new Date().toISOString(),
+      user_agent:navigator.userAgent,
+      ...trackingData(),
+      website:form.querySelector('#website')?.value||''
+    };
     const message=`Olá! Gostaria de solicitar uma avaliação com a Blaskowatt.
 
-Nome: ${value('nome')}
-WhatsApp: ${value('telefone')}
-Endereço do imóvel: ${value('endereco')}
-Serviço procurado: ${value('servico')}
-Tipo de imóvel: ${value('tipo_imovel')}
-Prazo para o projeto: ${value('prazo')}`;
-    const url=`https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    // No webhook is configured: the visitor confirms sending inside WhatsApp.
-    window.open(url,'_blank','noopener,noreferrer');
+Nome: ${payload.nome}
+WhatsApp: ${payload.telefone}
+Endereço do imóvel: ${payload.endereco}
+Serviço procurado: ${payload.servico}
+Tipo de imóvel: ${payload.tipo_imovel}
+Prazo para o projeto: ${payload.prazo}`;
+    const whatsappUrl=`https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    isSubmitting=true;
+    submitBtn.disabled=true;
+    nextBtn.disabled=true;
+    backBtn.disabled=true;
+    submitLabel.textContent='Enviando...';
+    status.hidden=true;
+    status.textContent='';
+    status.classList.remove('is-error');
+
+    try{
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),15000);
+      let response;
+      try{
+        response=await fetch(leadEndpoint,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(payload),
+          signal:controller.signal
+        });
+      }finally{clearTimeout(timeout);}
+      const result=await response.json().catch(()=>null);
+      if(!response.ok || !result || result.ok!==true){
+        throw new Error('Webhook request was not confirmed');
+      }
+      // Apenas evento sem dados pessoais para o GTM.
+      window.dataLayer=window.dataLayer||[];
+      window.dataLayer.push({event:'generate_lead',form_id:'lead-form',form_name:'Blaskowatt LP2',source:'blaskowatt_lp2'});
+      status.hidden=false;
+      status.textContent='Solicitação recebida! Abrindo o WhatsApp...';
+      // O fluxo anterior abria o WhatsApp; agora só redireciona após o Make confirmar.
+      window.location.assign(whatsappUrl);
+    }catch(error){
+      // Sem registros de dados pessoais no console.
+      console.warn('Não foi possível confirmar o envio do formulário da LP2.');
+      status.hidden=false;
+      status.classList.add('is-error');
+      status.textContent=error.name==='AbortError'
+        ? 'O envio demorou mais que o esperado. Verifique sua conexão e tente novamente.'
+        : 'Não foi possível enviar agora. Confira sua conexão e tente novamente. Seus dados continuam preenchidos.';
+      submitBtn.disabled=false;
+      nextBtn.disabled=false;
+      backBtn.disabled=false;
+      submitLabel.textContent=submitLabelOriginal;
+      isSubmitting=false;
+    }
   });
   showStep(0);
 }
